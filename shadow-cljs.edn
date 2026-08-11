@@ -1,0 +1,13 @@
+;; Dependency versions are declared here and again in deps.edn, which says what the
+;; published jar depends on. Keep the two in step.
+{:source-paths ["src" "test"]
+ :dependencies [[com.github.avanelsas/barebuild "0.7.0"]
+                [com.github.avanelsas/baredom  "3.7.0"]]
+
+ :builds
+ {;; .cjs, not .js: package.json declares "type": "module", which would make Node read
+  ;; the CommonJS test bundle as ESM.
+  :test
+  {:target    :node-test
+   :output-to "out/node-tests.cjs"
+   :ns-regexp "-test$"}}}

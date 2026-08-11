@@ -1,0 +1,6 @@
+/out
+/target
+/pom.xml
+/.shadow-cljs
+/.cpcache
+/node_modules

@@ -1,0 +1,20 @@
+{
+  "name": "@vanelsas/barereplay",
+  "version": "0.4.0",
+  "description": "Time-travel replay and debug tool for BareBuild. Records the event log, reconstructs any state by replaying the pure step, and re-projects it onto live components.",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "author": "Alexander van Elsas",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/avanelsas/barereplay.git"
+  },
+  "scripts": {
+    "test": "npx shadow-cljs compile test && node out/node-tests.cjs"
+  },
+  "exports": {},
+  "devDependencies": {
+    "shadow-cljs": "^3.4.11"
+  }
+}
