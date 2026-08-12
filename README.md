@@ -10,6 +10,8 @@
 
 **Time-travel replay debugger for [BareBuild](https://github.com/avanelsas/barebuild) apps.**
 
+[![Clojars Project](https://img.shields.io/clojars/v/com.github.avanelsas/barereplay.svg)](https://clojars.org/com.github.avanelsas/barereplay)
+
 **Part of a set.** [BareDOM](https://github.com/avanelsas/baredom) is a comprehensive web component
 library. [BareBuild](https://github.com/avanelsas/barebuild) is a small runtime that drives web
 components from server state alone. [BareReplay](https://github.com/avanelsas/barereplay) is a
@@ -51,5 +53,5 @@ request and response. The dock can be collapsed to its title bar.
 deps.edn:
 
 ```clojure
-com.github.avanelsas/barereplay {:mvn/version "0.1.0"}
+com.github.avanelsas/barereplay {:mvn/version "0.4.0"}
 ```
