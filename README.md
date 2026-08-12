@@ -1,6 +1,19 @@
 # BareReplay
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="public/assets/bare_darkmode.svg">
+    <source media="(prefers-color-scheme: light)" srcset="public/assets/bare_lightmode.svg">
+    <img alt="Project Logo" src="public/assets/bare_lightmode.svg" width="160">
+  </picture>
+</p>
+
 **Time-travel replay debugger for [BareBuild](https://github.com/avanelsas/barebuild) apps.**
+
+**Part of a set.** [BareDOM](https://github.com/avanelsas/baredom) is a comprehensive web component
+library. [BareBuild](https://github.com/avanelsas/barebuild) is a small runtime that drives web
+components from server state alone. [BareReplay](https://github.com/avanelsas/barereplay) is a
+powerful time-travel replay debugger for BareBuild-based apps.
 
 BareReplay records the BareBuild event log and reconstructs any past state by
 replaying the pure `step`, then re-projects it onto the live components. Drop it
