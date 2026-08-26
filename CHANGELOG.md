@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+Adds `barereplay.export`, which writes the recorded log out as EDN without the live elements a
+step carries. Nothing requires the namespace, so an app that does not ask for it is unaffected.
+
 ## 0.4.0
 
 BareReplay now lives in its own repository, <https://github.com/avanelsas/barereplay>. The Clojars coordinate `com.github.avanelsas/barereplay` is unchanged, so nothing moves for a consumer. Release tags are `vX.Y.Z` rather than `barereplay-vX.Y.Z`.
