@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.5.0
+
+Depends on BareBuild 0.8.0 and BareDOM 4.5.0, rather than 0.7.0 and 3.7.0. The dock is built from
+BareDOM components, so it takes the look of BareDOM 4. An app that takes BareDOM through
+BareReplay moves to the 4.x line with it.
 
 Adds `barereplay.export`, which writes the recorded log out as EDN without the live elements a
 step carries. Nothing requires the namespace, so an app that does not ask for it is unaffected.
