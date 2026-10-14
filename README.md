@@ -54,5 +54,5 @@ request and response. The dock can be collapsed to its title bar.
 deps.edn:
 
 ```clojure
-com.github.avanelsas/barereplay {:mvn/version "0.4.0"}
+com.github.avanelsas/barereplay {:mvn/version "0.5.0"}
 ```
