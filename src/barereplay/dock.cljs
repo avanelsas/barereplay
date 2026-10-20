@@ -282,11 +282,15 @@
   (du/setv! el k-state (assoc (du/getv el k-state) :n n :pinned? pinned?))
   (render! el refs entries n))
 
-(defn- go! [^js el refs n]
-  (let [entries (store/entries)
-        total   (count entries)
-        n'      (label/clamp n 0 total)]
+(defn- go-in!
+  "Moves the dock to position `n` of `entries`, clamped to them."
+  [^js el refs entries n]
+  (let [total (count entries)
+        n'    (label/clamp n 0 total)]
     (apply-at! el refs entries n' (= n' total))))
+
+(defn- go! [^js el refs n]
+  (go-in! el refs (store/entries) n))
 
 (defn- attr-markup
   "One attribute as markup, separator included. An empty value renders bare."
@@ -383,6 +387,12 @@
 (defn- current-n [^js el]
   (:n (du/getv el k-state)))
 
+(defn- follow!
+  "Redraws the dock for a changed log."
+  [^js el refs entries]
+  (let [{:keys [n pinned?]} (du/getv el k-state)]
+    (go-in! el refs entries (if pinned? (count entries) n))))
+
 (defn- toggle-collapsed!
   "Flip the collapse fact and redraw from it, the same shape every other gesture
    takes: move the state value, then let `render!` decide what the DOM owes it."
@@ -410,12 +420,7 @@
     (.addEventListener (:collapse refs) "press" (fn [_] (toggle-collapsed! el refs)))
     (position-top-right! (:panel refs))
     (go! el refs (count (store/entries)))
-    (store/subscribe!
-     (fn [entries]
-       (let [{:keys [n pinned?]} (du/getv el k-state)]
-         (if pinned?
-           (go! el refs (count entries))
-           (render! el refs entries n)))))))
+    (store/subscribe! (partial follow! el refs))))
 
 (defn- connected! [^js el]
   (let [root (.attachShadow el #js {:mode "open"})]
