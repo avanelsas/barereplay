@@ -1,0 +1,98 @@
+(ns barereplay.view-test
+  (:require [cljs.test :refer-macros [deftest is testing]]
+            [barereplay.view :as view]))
+
+(def ^:private entries
+  [{:event   [:submit-write {:op :delete :id 7}]
+    :effects [[:write {:method "DELETE" :url "/api/tasks/7"}]]}
+   {:event   [:connected {}]
+    :effects []}])
+
+(defn- disabled [writes]
+  (update-vals (select-keys writes ["start" "prev" "next" "end"]) (comp :disabled :attrs)))
+
+(defn- written-values
+  "The values one write puts on its part."
+  [{:keys [attrs props] :as write}]
+  (concat (when (contains? write :text) [(:text write)]) (vals attrs) (vals props)))
+
+(deftest writes-fill-every-hole
+  (doseq [seen [{:n 0 :collapsed? false} {:n 1 :collapsed? true} {:n 2 :collapsed? false}]]
+    (is (not-any? nil? (mapcat written-values (vals (view/writes entries seen))))
+        (str "no hole reads a missing key at " seen))))
+
+(deftest writes-show-live-or-replaying
+  (testing "the end of the log is live"
+    (let [w (view/writes entries {:n 2 :collapsed? false})]
+      (is (= {:text "LIVE" :attrs {:data-live true}} (w "badge")))
+      (is (= {:text "2 / 2"} (w "count")))
+      (is (= {:text "connected"} (w "event")))))
+  (testing "a position before the end is a replay"
+    (let [w (view/writes entries {:n 1 :collapsed? false})]
+      (is (= {:text "REPLAYING" :attrs {:data-live false}} (w "badge")))
+      (is (= {:text "write delete #7"} (w "event")))))
+  (testing "position 0 shows no event"
+    (is (= {:text ""} ((view/writes entries {:n 0 :collapsed? false}) "event")))))
+
+(deftest writes-disable-the-moves-a-position-cannot-make
+  (is (= {"start" true "prev" true "next" false "end" false}
+         (disabled (view/writes entries {:n 0 :collapsed? false}))))
+  (is (= {"start" false "prev" false "next" false "end" false}
+         (disabled (view/writes entries {:n 1 :collapsed? false}))))
+  (is (= {"start" false "prev" false "next" true "end" true}
+         (disabled (view/writes entries {:n 2 :collapsed? false})))))
+
+(deftest writes-put-the-position-on-the-slider
+  (is (= {:attrs {:max "2" :value "1"}} ((view/writes entries {:n 1 :collapsed? false}) "slider"))))
+
+(deftest writes-offer-the-collapse-the-panel-is-not-in
+  (let [open   (view/writes entries {:n 2 :collapsed? false})
+        closed (view/writes entries {:n 2 :collapsed? true})]
+    (is (= {:attrs {:data-collapsed false}} (open "panel")))
+    (is (= {:attrs {:label "Collapse panel"}} (open "collapse")))
+    (is (= {:attrs {:data-collapsed true}} (closed "panel")))
+    (is (= {:attrs {:label "Expand panel"}} (closed "collapse")))
+    (is (= {:attrs {:class "icon icon-collapse"}} (open "collapse-icon")))
+    (is (= {:attrs {:class "icon icon-expand"}} (closed "collapse-icon")))))
+
+(deftest writes-show-the-request-and-response-of-a-position
+  (is (= {:props {:code "{\n  \"request\": {\n    \"method\": \"DELETE\",\n    \"url\": \"/api/tasks/7\"\n  }\n}"}}
+         ((view/writes entries {:n 1 :collapsed? false}) "data")))
+  (is (= {:props {:code "No request/response at this step."}}
+         ((view/writes entries {:n 2 :collapsed? false}) "data"))))
+
+(defn- meaning
+  "The meaning of an event entry, with or without an argument function."
+  [entry]
+  (if (vector? entry) (first entry) entry))
+
+(defn- argument
+  "The argument the template's event `event-type` on part `part` takes from `detail`."
+  [event-type part detail]
+  (let [[_ arg-of] (get (:events view/dock) [event-type part])]
+    (arg-of nil #js {:detail (clj->js detail)})))
+
+(deftest events-name-the-messages-of-the-dock
+  (is (= {["press" "start"]                 :start
+          ["press" "prev"]                  :prev
+          ["press" "next"]                  :next
+          ["press" "end"]                   :end
+          ["press" "collapse"]              :collapse
+          ["x-slider-input" "slider"]       :slide
+          ["x-timeline-select" "timeline"] :select}
+         (update-vals (:events view/dock) meaning))))
+
+(deftest events-take-the-position-a-gesture-asks-for
+  (is (= 50 (argument "x-slider-input" "slider" {:value 50.4})) "a slider rounds its value")
+  (is (= 9 (argument "x-timeline-select" "timeline" {:index 9})) "a select names its index")
+  (is (nil? (argument "x-timeline-select" "timeline" {:index "x"})) "a select with no index names none"))
+
+(deftest position-for-names-the-position-a-message-asks-for
+  (is (= 0 (view/position-for [:start] 5 9)))
+  (is (= 4 (view/position-for [:prev] 5 9)))
+  (is (= 6 (view/position-for [:next] 5 9)))
+  (is (= 9 (view/position-for [:end] 5 9)))
+  (is (= 3 (view/position-for [:slide 3] 5 9)))
+  (is (= 10 (view/position-for [:select 9] 5 9)) "a select moves to the entry after its index")
+  (is (nil? (view/position-for [:select] 5 9)) "a select with no index moves nowhere")
+  (is (nil? (view/position-for [:collapse] 5 9)) "a message that is no move moves nowhere"))

@@ -3,9 +3,14 @@
    [barebuild.utils.url :as url]
    [baredom.utils.component :as comp]
    [baredom.utils.dom :as du]
+   [baremirror.alpha.events :as events]
+   [baremirror.alpha.parts :as parts]
+   [baremirror.alpha.places :as places]
+   [baremirror.alpha.template :as template]
    [barereplay.label :as label]
    [barereplay.reconstruct :as reconstruct]
-   [barereplay.store :as store]))
+   [barereplay.store :as store]
+   [barereplay.view :as view]))
 
 (def ^:private styles
   "
@@ -65,7 +70,14 @@
   --x-button-ghost-bg-hover: rgba(127, 127, 127, 0.2);
   --x-button-ghost-bg-active: rgba(127, 127, 127, 0.32);
   }
-  .nav svg { display: block; width: 15px; height: 15px; }
+  .icon {
+  display: block;
+  width: 15px;
+  height: 15px;
+  background-color: currentColor;
+  -webkit-mask: var(--icon) center / contain no-repeat;
+  mask: var(--icon) center / contain no-repeat;
+  }
 
   .head { display: flex; align-items: center; gap: 0.5rem; }
   .head .title { flex: 1 1 auto; min-width: 0; }
@@ -103,111 +115,55 @@
 
 (def ^:private tag "barereplay-dock")
 (def ^:private k-state "__brDockState")
-(def ^:private k-view "__brDockView")
+(def ^:private k-seen "__brDockSeen")
 (def ^:private k-live-url "__brDockLiveUrl")
 
-(def ^:private attr-collapsed "data-collapsed")
-(def ^:private attr-label     "label")
+(defn- icon-rule
+  "The style rule that gives the class of one icon its mask."
+  [[icon path]]
+  (str "." (view/icon-class icon) " { --icon: url(\"data:image/svg+xml,"
+       (js/encodeURIComponent
+        (str "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='" path "'/></svg>"))
+       "\"); }\n"))
 
-(def ^:private svg-start    "M6 6h2v12H6zm3.5 6l8.5 6V6z")
-(def ^:private svg-prev     "M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6z")
-(def ^:private svg-next     "M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z")
-(def ^:private svg-end      "M6 18l8.5-6L6 6v12zM16 6v12h2V6z")
-(def ^:private svg-collapse "M6 13h12v-2H6z")
-(def ^:private svg-expand   "M12 15.5L5.5 9 7 7.5l5 5 5-5L18.5 9z")
-
-(defn- data-json [entries n]
-  (if-let [d (label/detail-at entries n)]
-    (js/JSON.stringify (clj->js d) nil 2)
-    "No request/response at this step."))
+(def ^:private style-node
+  [:style (apply str styles (map icon-rule view/icons))])
 
 (defn- project! [entries n]
   (doseq [{:keys [el value]} (vals (reconstruct/resources-at entries n))]
     (when (and el value)
       (.projectResource ^js el value))))
 
-(defn- set-disabled! [^js btn disabled?]
-  (if disabled?
-    (du/set-attr! btn "disabled" "")
-    (du/remove-attr! btn "disabled")))
+(def ^:private timeline-item
+  (template/split :log-item [:x-timeline-item {:title :title :status :status}]))
 
-(defn- icon-svg [path]
-  (str "<svg viewBox='0 0 24 24' fill='currentColor' aria-hidden='true'><path d='"
-       path "'/></svg>"))
+(def ^:private make-timeline-item! (parts/node-maker (:fixed timeline-item)))
 
-(defn- collapse-affordance
-  "What the collapse button offers next, given the panel's current state."
-  [collapsed?]
-  (if collapsed?
-    {:label "Expand panel"   :path svg-expand}
-    {:label "Collapse panel" :path svg-collapse}))
+(defn- place-log-items!
+  "Brings the items of `timeline` to one for each of `total` entries."
+  [^js timeline total]
+  (places/sync! {:log {:parent timeline}} {:log (mapv label/log-key (range total))}
+                make-timeline-item!))
 
-(defn- make-item! [entries i]
-  (let [^js item (.createElement js/document "x-timeline-item")]
-    (du/set-attr! item "title" (label/event->label (:event (nth entries i))))
-    item))
-
-(defn- grow-log! [^js timeline entries from to]
-  (doseq [i (range from to)]
-    (.appendChild timeline (make-item! entries i))))
-
-(defn- paint-statuses! [^js timeline n]
-  (let [items (.-children timeline)]
-    (dotimes [i (.-length items)]
-      (du/set-attr! (.item items i) "status" (label/item-status (inc i) n)))))
+;; The items are keyed by their index, so the child at index `i` is the item of entry `i`.
+(defn- write-log-item! [^js timeline entries n i]
+  (parts/write-item! (.item (.-children timeline) i) timeline-item (label/log-item entries n i)))
 
 (defn- scroll-active! [^js timeline n]
   (when (pos? n)
     (when-let [^js item (.item (.-children timeline) (dec n))]
       (.scrollIntoView item #js {:block "nearest"}))))
 
-(defn- render-status! [refs entries n]
-  (let [^js badge    (:badge refs)
-        ^js count-el (:count refs)
-        ^js event-el (:event refs)
-        {:keys [live? total event]} (label/status entries n)]
-    (set! (.-textContent badge) (if live? "LIVE" "REPLAYING"))
-    (if live?
-      (du/set-attr! badge "data-live" "")
-      (du/remove-attr! badge "data-live"))
-    (set! (.-textContent count-el) (str n " / " total))
-    (set! (.-textContent event-el) (if event (label/event->label event) ""))))
-
-(defn- render-collapse! [refs collapsed?]
-  (let [^js panel (:panel refs)
-        ^js btn   (:collapse refs)
-        {:keys [label path]} (collapse-affordance collapsed?)]
-    (if collapsed?
-      (du/set-attr! panel attr-collapsed "")
-      (du/remove-attr! panel attr-collapsed))
-    (du/set-attr! btn attr-label label)
-    (set! (.-innerHTML btn) (icon-svg path))))
-
-(defn- render-log! [refs entries n]
-  (let [^js timeline (:timeline refs)
-        total        (count entries)
-        have         (.-length (.-children timeline))]
-    (cond
-      (> have total) (do (set! (.-innerHTML timeline) "")
-                         (grow-log! timeline entries 0 total))
-      (< have total) (grow-log! timeline entries have total))
-    (paint-statuses! timeline n)
+(defn- render-log!
+  "Brings the log from `prev` to position `n`, writing only the items that change."
+  [refs entries prev n]
+  (let [^js timeline (refs view/log-part)
+        total        (count entries)]
+    (when-not (= total (:total prev))
+      (place-log-items! timeline total))
+    (run! (partial write-log-item! timeline entries n)
+          (label/changed-log-indices prev total n))
     (scroll-active! timeline n)))
-
-(defn- render-data! [refs entries n]
-  (let [^js data-code (:data refs)]
-    (set! (.-code data-code) (data-json entries n))))
-
-(defn- render-nav! [refs n total]
-  (set-disabled! (:start refs) (<= n 0))
-  (set-disabled! (:prev refs) (<= n 0))
-  (set-disabled! (:next refs) (>= n total))
-  (set-disabled! (:end refs) (>= n total)))
-
-(defn- render-slider! [refs n total]
-  (let [^js slider (:slider refs)]
-    (du/set-attr! slider "max" (str total))
-    (du/set-attr! slider "value" (str n))))
 
 (defn- reconstructed-url
   "Reconstruct the current replay url from its pathname and params"
@@ -255,100 +211,35 @@
        (not (and (= (:n prev) (:total prev)) (= n total)))))
 
 (defn- render!
-  "Draw the dock for one position. `render-collapse!` runs before `render-log!`:
-   the log's scroll cannot land while the body is still display:none."
+  "Draws the dock for one position."
   [^js el refs entries n]
   (let [total      (count entries)
         collapsed? (boolean (:collapsed? (du/getv el k-state)))
-        view       {:n n :total total :collapsed? collapsed?}
-        prev       (du/getv el k-view)]
-    (when (not= view prev)
+        seen       {:n n :total total :collapsed? collapsed?}
+        prev       (du/getv el k-seen)]
+    (when (not= seen prev)
       (when (scrub-move? prev n total)
         (sync-url! el entries n total)
         (project! entries n))
-      (du/setv! el k-view view)
-      (render-status! refs entries n)
-      (render-collapse! refs collapsed?)
-      (render-log! refs entries n)
-      (render-data! refs entries n)
-      (render-nav! refs n total)
-      (render-slider! refs n total))))
+      (du/setv! el k-seen seen)
+      ;; The collapse is written before the log, whose scroll cannot land while the body is
+      ;; display:none.
+      (parts/write-parts! refs (view/writes entries seen))
+      (render-log! refs entries prev n))))
 
 (defn- apply-at! [^js el refs entries n pinned?]
   (du/setv! el k-state (assoc (du/getv el k-state) :n n :pinned? pinned?))
   (render! el refs entries n))
 
-(defn- go! [^js el refs n]
-  (let [entries (store/entries)
-        total   (count entries)
-        n'      (label/clamp n 0 total)]
+(defn- go-in!
+  "Moves the dock to position `n` of `entries`, clamped to them."
+  [^js el refs entries n]
+  (let [total (count entries)
+        n'    (label/clamp n 0 total)]
     (apply-at! el refs entries n' (= n' total))))
 
-(defn- attr-markup
-  "One attribute as markup, separator included. An empty value renders bare."
-  [[name value]]
-  (if (= "" value)
-    (str " " name)
-    (str " " name "='" value "'")))
-
-(defn- nav-btn
-  "A ghost icon button. `attrs` is a name to value map of anything beyond the
-   shared ones, an empty value meaning a bare boolean attribute."
-  ([cls label path] (nav-btn cls label path {}))
-  ([cls label path attrs]
-   (str "<x-button class='nav " cls "' variant='ghost'"
-        (attr-markup [attr-label label])
-        (apply str (map attr-markup attrs))
-        ">"
-        (icon-svg path)
-        "</x-button>")))
-
-(defn- collapse-btn
-  "The collapse button in its starting state. `data-no-drag` keeps a press on it
-   from starting a panel drag."
-  []
-  (let [{:keys [label path]} (collapse-affordance false)]
-    (nav-btn "collapse" label path {"data-no-drag" ""})))
-
-(defn- markup []
-  (str "<style>" styles "</style>"
-       "<x-floating-panel class='panel' open label='BareReplay'>"
-       "<div class='head' slot='header'>"
-       "<span class='title'>BareReplay</span>"
-       (collapse-btn)
-       "</div>"
-       "<div class='body'>"
-       "<div class='status'><span class='badge'></span><span class='count'></span></div>"
-       "<div class='event'></div>"
-       "<div class='history'>History</div>"
-       "<div class='transport'>"
-       (nav-btn "nav-start" "Jump to start" svg-start)
-       (nav-btn "nav-prev" "Step back" svg-prev)
-       "<x-slider class='slider' min='0' step='1' aria-label='History'></x-slider>"
-       (nav-btn "nav-next" "Step forward" svg-next)
-       (nav-btn "nav-end" "Jump to live" svg-end)
-       "</div>"
-       "<x-timeline class='log' position='end'></x-timeline>"
-       "<details class='data'>"
-       "<summary>Data</summary>"
-       "<x-code class='data-code' language='json' show-copy wrap max-lines='12'></x-code>"
-       "</details>"
-       "</div>"
-       "</x-floating-panel>"))
-
-(defn- build-refs [^js root]
-  {:panel    (.querySelector root "x-floating-panel")
-   :badge    (.querySelector root ".badge")
-   :count    (.querySelector root ".count")
-   :event    (.querySelector root ".event")
-   :slider   (.querySelector root "x-slider")
-   :timeline (.querySelector root "x-timeline")
-   :data     (.querySelector root ".data-code")
-   :start    (.querySelector root ".nav-start")
-   :prev     (.querySelector root ".nav-prev")
-   :next     (.querySelector root ".nav-next")
-   :end      (.querySelector root ".nav-end")
-   :collapse (.querySelector root ".collapse")})
+(defn- go! [^js el refs n]
+  (go-in! el refs (store/entries) n))
 
 (defn- position-top-right! [^js panel]
   (js/requestAnimationFrame
@@ -379,6 +270,12 @@
 (defn- current-n [^js el]
   (:n (du/getv el k-state)))
 
+(defn- follow!
+  "Redraws the dock for a changed log."
+  [^js el refs entries]
+  (let [{:keys [n pinned?]} (du/getv el k-state)]
+    (go-in! el refs entries (if pinned? (count entries) n))))
+
 (defn- toggle-collapsed!
   "Flip the collapse fact and redraw from it, the same shape every other gesture
    takes: move the state value, then let `render!` decide what the DOM owes it."
@@ -386,37 +283,24 @@
   (du/setv! el k-state (update (du/getv el k-state) :collapsed? not))
   (render! el refs (store/entries) (current-n el)))
 
-(defn- wire! [^js el ^js root]
-  (let [refs (build-refs root)]
-    (.addEventListener (:slider refs) "x-slider-input"
-                       (fn [^js e]
-                         (let [entries (store/entries)
-                               total   (count entries)
-                               n       (label/clamp (js/Math.round (.. e -detail -value)) 0 total)]
-                           (apply-at! el refs entries n (= n total)))))
-    (.addEventListener (:timeline refs) "x-timeline-select"
-                       (fn [^js e]
-                         (let [i (.. e -detail -index)]
-                           (when (number? i)
-                             (go! el refs (inc i))))))
-    (.addEventListener (:start refs) "press" (fn [_] (go! el refs 0)))
-    (.addEventListener (:prev refs) "press" (fn [_] (go! el refs (dec (current-n el)))))
-    (.addEventListener (:next refs) "press" (fn [_] (go! el refs (inc (current-n el)))))
-    (.addEventListener (:end refs) "press" (fn [_] (go! el refs (count (store/entries)))))
-    (.addEventListener (:collapse refs) "press" (fn [_] (toggle-collapsed! el refs)))
-    (position-top-right! (:panel refs))
+(defn- perform! [^js el refs [meaning :as message]]
+  (if (= meaning :collapse)
+    (toggle-collapsed! el refs)
+    (when-some [n (view/position-for message (current-n el) (count (store/entries)))]
+      (go! el refs n))))
+
+(defn- wire! [^js el ^js panel]
+  (let [refs (parts/read-parts panel)]
+    (events/listen! panel {:dispatch! (partial perform! el refs) :events (:events view/dock)})
+    (position-top-right! panel)
     (go! el refs (count (store/entries)))
-    (store/subscribe!
-     (fn [entries]
-       (let [{:keys [n pinned?]} (du/getv el k-state)]
-         (if pinned?
-           (go! el refs (count entries))
-           (render! el refs entries n)))))))
+    (store/subscribe! (partial follow! el refs))))
 
 (defn- connected! [^js el]
-  (let [root (.attachShadow el #js {:mode "open"})]
-    (set! (.-innerHTML root) (markup))
-    (wire! el root)))
+  (let [root  (.attachShadow el #js {:mode "open"})
+        panel (parts/make-node! (:fixed view/dock))]
+    (.append root (parts/make-node! style-node) panel)
+    (wire! el panel)))
 
 (defn- disconnected! [^js el]
   (restore-live-url! el)
