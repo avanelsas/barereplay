@@ -11,6 +11,16 @@
 (defn- disabled [writes]
   (update-vals (select-keys writes ["start" "prev" "next" "end"]) (comp :disabled :attrs)))
 
+(defn- written-values
+  "The values one write puts on its part."
+  [{:keys [attrs props] :as write}]
+  (concat (when (contains? write :text) [(:text write)]) (vals attrs) (vals props)))
+
+(deftest writes-fill-every-hole
+  (doseq [seen [{:n 0 :collapsed? false} {:n 1 :collapsed? true} {:n 2 :collapsed? false}]]
+    (is (not-any? nil? (mapcat written-values (vals (view/writes entries seen))))
+        (str "no hole reads a missing key at " seen))))
+
 (deftest writes-show-live-or-replaying
   (testing "the end of the log is live"
     (let [w (view/writes entries {:n 2 :collapsed? false})]
@@ -42,7 +52,8 @@
     (is (= {:attrs {:label "Collapse panel"}} (open "collapse")))
     (is (= {:attrs {:data-collapsed true}} (closed "panel")))
     (is (= {:attrs {:label "Expand panel"}} (closed "collapse")))
-    (is (not= (open "collapse-icon") (closed "collapse-icon")))))
+    (is (= {:attrs {:class "icon icon-collapse"}} (open "collapse-icon")))
+    (is (= {:attrs {:class "icon icon-expand"}} (closed "collapse-icon")))))
 
 (deftest writes-show-the-request-and-response-of-a-position
   (is (= {:props {:code "{\n  \"request\": {\n    \"method\": \"DELETE\",\n    \"url\": \"/api/tasks/7\"\n  }\n}"}}

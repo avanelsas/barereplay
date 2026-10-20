@@ -69,7 +69,14 @@
   --x-button-ghost-bg-hover: rgba(127, 127, 127, 0.2);
   --x-button-ghost-bg-active: rgba(127, 127, 127, 0.32);
   }
-  .nav svg { display: block; width: 15px; height: 15px; }
+  .icon {
+  display: block;
+  width: 15px;
+  height: 15px;
+  background-color: currentColor;
+  -webkit-mask: var(--icon) center / contain no-repeat;
+  mask: var(--icon) center / contain no-repeat;
+  }
 
   .head { display: flex; align-items: center; gap: 0.5rem; }
   .head .title { flex: 1 1 auto; min-width: 0; }
@@ -110,31 +117,21 @@
 (def ^:private k-seen "__brDockSeen")
 (def ^:private k-live-url "__brDockLiveUrl")
 
-(def ^:private attr-label "label")
+(defn- icon-rule
+  "The style rule that gives the class of one icon its mask."
+  [[icon path]]
+  (str "." (view/icon-class icon) " { --icon: url(\"data:image/svg+xml,"
+       (js/encodeURIComponent
+        (str "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='" path "'/></svg>"))
+       "\"); }\n"))
 
-(def ^:private svg-start    "M6 6h2v12H6zm3.5 6l8.5 6V6z")
-(def ^:private svg-prev     "M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6z")
-(def ^:private svg-next     "M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z")
-(def ^:private svg-end      "M6 18l8.5-6L6 6v12zM16 6v12h2V6z")
+(def ^:private style-node
+  [:style (apply str styles (map icon-rule view/icons))])
 
 (defn- project! [entries n]
   (doseq [{:keys [el value]} (vals (reconstruct/resources-at entries n))]
     (when (and el value)
       (.projectResource ^js el value))))
-
-(defn- attr-markup
-  "One attribute as markup, separator included. An empty value renders bare."
-  [[name value]]
-  (if (= "" value)
-    (str " " name)
-    (str " " name "='" value "'")))
-
-(defn- icon-svg
-  "An icon, with `path-attrs` on its path."
-  [path-attrs]
-  (str "<svg viewBox='0 0 24 24' fill='currentColor' aria-hidden='true'><path"
-       (apply str (map attr-markup path-attrs))
-       "/></svg>"))
 
 (def ^:private timeline-item
   (template/split :log-item [:x-timeline-item {:title :title :status :status}]))
@@ -159,7 +156,7 @@
 (defn- render-log!
   "Brings the log from `prev` to position `n`, writing only the items that change."
   [refs entries prev n]
-  (let [^js timeline (refs "timeline")
+  (let [^js timeline (refs view/log-part)
         total        (count entries)]
     (when-not (= total (:total prev))
       (place-log-items! timeline total))
@@ -243,62 +240,6 @@
 (defn- go! [^js el refs n]
   (go-in! el refs (store/entries) n))
 
-(defn- nav-btn
-  "A ghost icon button, the part `part`. `path-attrs` go on its icon's path. `attrs` is a name
-   to value map of anything beyond the shared ones, an empty value meaning a bare boolean
-   attribute."
-  ([part label path-attrs] (nav-btn part label path-attrs {}))
-  ([part label path-attrs attrs]
-   (str "<x-button class='nav' variant='ghost' data-x-part='" part "'"
-        (attr-markup [attr-label label])
-        (apply str (map attr-markup attrs))
-        ">"
-        (icon-svg path-attrs)
-        "</x-button>")))
-
-(defn- collapse-btn
-  "The collapse button in its starting state. `data-no-drag` keeps a press on it
-   from starting a panel drag."
-  []
-  (let [{:keys [label path]} (view/collapse-affordance false)]
-    (nav-btn "collapse" label {"d" path "data-x-part" "collapse-icon"} {"data-no-drag" ""})))
-
-(defn- markup []
-  (str "<style>" styles "</style>"
-       "<x-floating-panel class='panel' data-x-part='panel' open label='BareReplay'>"
-       "<div class='head' slot='header'>"
-       "<span class='title'>BareReplay</span>"
-       (collapse-btn)
-       "</div>"
-       "<div class='body'>"
-       "<div class='status'>"
-       "<span class='badge' data-x-part='badge'></span>"
-       "<span class='count' data-x-part='count'></span>"
-       "</div>"
-       "<div class='event' data-x-part='event'></div>"
-       "<div class='history'>History</div>"
-       "<div class='transport'>"
-       (nav-btn "start" "Jump to start" {"d" svg-start})
-       (nav-btn "prev" "Step back" {"d" svg-prev})
-       "<x-slider class='slider' data-x-part='slider' min='0' step='1' aria-label='History'>"
-       "</x-slider>"
-       (nav-btn "next" "Step forward" {"d" svg-next})
-       (nav-btn "end" "Jump to live" {"d" svg-end})
-       "</div>"
-       "<x-timeline class='log' data-x-part='timeline' position='end'></x-timeline>"
-       "<details class='data'>"
-       "<summary>Data</summary>"
-       "<x-code class='data-code' data-x-part='data' language='json' show-copy wrap"
-       " max-lines='12'></x-code>"
-       "</details>"
-       "</div>"
-       "</x-floating-panel>"))
-
-(defn- build-refs
-  "The parts of the dock in `root`, by name."
-  [^js root]
-  (parts/read-parts (.querySelector root "x-floating-panel")))
-
 (defn- position-top-right! [^js panel]
   (js/requestAnimationFrame
    (fn []
@@ -341,8 +282,8 @@
   (du/setv! el k-state (update (du/getv el k-state) :collapsed? not))
   (render! el refs (store/entries) (current-n el)))
 
-(defn- wire! [^js el ^js root]
-  (let [refs (build-refs root)]
+(defn- wire! [^js el ^js panel]
+  (let [refs (parts/read-parts panel)]
     (.addEventListener (refs "slider") "x-slider-input"
                        (fn [^js e]
                          (let [entries (store/entries)
@@ -359,14 +300,15 @@
     (.addEventListener (refs "next") "press" (fn [_] (go! el refs (inc (current-n el)))))
     (.addEventListener (refs "end") "press" (fn [_] (go! el refs (count (store/entries)))))
     (.addEventListener (refs "collapse") "press" (fn [_] (toggle-collapsed! el refs)))
-    (position-top-right! (refs "panel"))
+    (position-top-right! panel)
     (go! el refs (count (store/entries)))
     (store/subscribe! (partial follow! el refs))))
 
 (defn- connected! [^js el]
-  (let [root (.attachShadow el #js {:mode "open"})]
-    (set! (.-innerHTML root) (markup))
-    (wire! el root)))
+  (let [root  (.attachShadow el #js {:mode "open"})
+        panel (parts/make-node! (:fixed view/dock))]
+    (.append root (parts/make-node! style-node) panel)
+    (wire! el panel)))
 
 (defn- disconnected! [^js el]
   (restore-live-url! el)
