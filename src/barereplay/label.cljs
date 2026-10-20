@@ -59,7 +59,7 @@
     (range (max 0 (dec (min a b))) (max a b))))
 
 (defn changed-log-indices
-  "The indices of the log items that differ between the view `prev` and position `n` of
+  "The indices of the log items that differ between `prev` and position `n` of
    `total` entries, in order. With no `prev`, or fewer entries than `prev`, every index."
   [{prev-n :n prev-total :total} total n]
   (if (or (nil? prev-total) (< total prev-total))

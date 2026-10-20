@@ -8,7 +8,8 @@
    [baremirror.alpha.template :as template]
    [barereplay.label :as label]
    [barereplay.reconstruct :as reconstruct]
-   [barereplay.store :as store]))
+   [barereplay.store :as store]
+   [barereplay.view :as view]))
 
 (def ^:private styles
   "
@@ -106,44 +107,34 @@
 
 (def ^:private tag "barereplay-dock")
 (def ^:private k-state "__brDockState")
-(def ^:private k-view "__brDockView")
+(def ^:private k-seen "__brDockSeen")
 (def ^:private k-live-url "__brDockLiveUrl")
 
-(def ^:private attr-collapsed "data-collapsed")
-(def ^:private attr-label     "label")
+(def ^:private attr-label "label")
 
 (def ^:private svg-start    "M6 6h2v12H6zm3.5 6l8.5 6V6z")
 (def ^:private svg-prev     "M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6z")
 (def ^:private svg-next     "M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z")
 (def ^:private svg-end      "M6 18l8.5-6L6 6v12zM16 6v12h2V6z")
-(def ^:private svg-collapse "M6 13h12v-2H6z")
-(def ^:private svg-expand   "M12 15.5L5.5 9 7 7.5l5 5 5-5L18.5 9z")
-
-(defn- data-json [entries n]
-  (if-let [d (label/detail-at entries n)]
-    (js/JSON.stringify (clj->js d) nil 2)
-    "No request/response at this step."))
 
 (defn- project! [entries n]
   (doseq [{:keys [el value]} (vals (reconstruct/resources-at entries n))]
     (when (and el value)
       (.projectResource ^js el value))))
 
-(defn- set-disabled! [^js btn disabled?]
-  (if disabled?
-    (du/set-attr! btn "disabled" "")
-    (du/remove-attr! btn "disabled")))
+(defn- attr-markup
+  "One attribute as markup, separator included. An empty value renders bare."
+  [[name value]]
+  (if (= "" value)
+    (str " " name)
+    (str " " name "='" value "'")))
 
-(defn- icon-svg [path]
-  (str "<svg viewBox='0 0 24 24' fill='currentColor' aria-hidden='true'><path d='"
-       path "'/></svg>"))
-
-(defn- collapse-affordance
-  "What the collapse button offers next, given the panel's current state."
-  [collapsed?]
-  (if collapsed?
-    {:label "Expand panel"   :path svg-expand}
-    {:label "Collapse panel" :path svg-collapse}))
+(defn- icon-svg
+  "An icon, with `path-attrs` on its path."
+  [path-attrs]
+  (str "<svg viewBox='0 0 24 24' fill='currentColor' aria-hidden='true'><path"
+       (apply str (map attr-markup path-attrs))
+       "/></svg>"))
 
 (def ^:private timeline-item
   (template/split :log-item [:x-timeline-item {:title :title :status :status}]))
@@ -165,53 +156,16 @@
     (when-let [^js item (.item (.-children timeline) (dec n))]
       (.scrollIntoView item #js {:block "nearest"}))))
 
-(defn- render-status! [refs entries n]
-  (let [^js badge    (:badge refs)
-        ^js count-el (:count refs)
-        ^js event-el (:event refs)
-        {:keys [live? total event]} (label/status entries n)]
-    (set! (.-textContent badge) (if live? "LIVE" "REPLAYING"))
-    (if live?
-      (du/set-attr! badge "data-live" "")
-      (du/remove-attr! badge "data-live"))
-    (set! (.-textContent count-el) (str n " / " total))
-    (set! (.-textContent event-el) (if event (label/event->label event) ""))))
-
-(defn- render-collapse! [refs collapsed?]
-  (let [^js panel (:panel refs)
-        ^js btn   (:collapse refs)
-        {:keys [label path]} (collapse-affordance collapsed?)]
-    (if collapsed?
-      (du/set-attr! panel attr-collapsed "")
-      (du/remove-attr! panel attr-collapsed))
-    (du/set-attr! btn attr-label label)
-    (set! (.-innerHTML btn) (icon-svg path))))
-
 (defn- render-log!
-  "Brings the log from the view `prev` to position `n`, writing only the items that change."
+  "Brings the log from `prev` to position `n`, writing only the items that change."
   [refs entries prev n]
-  (let [^js timeline (:timeline refs)
+  (let [^js timeline (refs "timeline")
         total        (count entries)]
     (when-not (= total (:total prev))
       (place-log-items! timeline total))
     (run! (partial write-log-item! timeline entries n)
           (label/changed-log-indices prev total n))
     (scroll-active! timeline n)))
-
-(defn- render-data! [refs entries n]
-  (let [^js data-code (:data refs)]
-    (set! (.-code data-code) (data-json entries n))))
-
-(defn- render-nav! [refs n total]
-  (set-disabled! (:start refs) (<= n 0))
-  (set-disabled! (:prev refs) (<= n 0))
-  (set-disabled! (:next refs) (>= n total))
-  (set-disabled! (:end refs) (>= n total)))
-
-(defn- render-slider! [refs n total]
-  (let [^js slider (:slider refs)]
-    (du/set-attr! slider "max" (str total))
-    (du/set-attr! slider "value" (str n))))
 
 (defn- reconstructed-url
   "Reconstruct the current replay url from its pathname and params"
@@ -259,24 +213,21 @@
        (not (and (= (:n prev) (:total prev)) (= n total)))))
 
 (defn- render!
-  "Draw the dock for one position. `render-collapse!` runs before `render-log!`:
-   the log's scroll cannot land while the body is still display:none."
+  "Draws the dock for one position."
   [^js el refs entries n]
   (let [total      (count entries)
         collapsed? (boolean (:collapsed? (du/getv el k-state)))
-        view       {:n n :total total :collapsed? collapsed?}
-        prev       (du/getv el k-view)]
-    (when (not= view prev)
+        seen       {:n n :total total :collapsed? collapsed?}
+        prev       (du/getv el k-seen)]
+    (when (not= seen prev)
       (when (scrub-move? prev n total)
         (sync-url! el entries n total)
         (project! entries n))
-      (du/setv! el k-view view)
-      (render-status! refs entries n)
-      (render-collapse! refs collapsed?)
-      (render-log! refs entries prev n)
-      (render-data! refs entries n)
-      (render-nav! refs n total)
-      (render-slider! refs n total))))
+      (du/setv! el k-seen seen)
+      ;; The collapse is written before the log, whose scroll cannot land while the body is
+      ;; display:none.
+      (parts/write-parts! refs (view/writes entries seen))
+      (render-log! refs entries prev n))))
 
 (defn- apply-at! [^js el refs entries n pinned?]
   (du/setv! el k-state (assoc (du/getv el k-state) :n n :pinned? pinned?))
@@ -292,71 +243,61 @@
 (defn- go! [^js el refs n]
   (go-in! el refs (store/entries) n))
 
-(defn- attr-markup
-  "One attribute as markup, separator included. An empty value renders bare."
-  [[name value]]
-  (if (= "" value)
-    (str " " name)
-    (str " " name "='" value "'")))
-
 (defn- nav-btn
-  "A ghost icon button. `attrs` is a name to value map of anything beyond the
-   shared ones, an empty value meaning a bare boolean attribute."
-  ([cls label path] (nav-btn cls label path {}))
-  ([cls label path attrs]
-   (str "<x-button class='nav " cls "' variant='ghost'"
+  "A ghost icon button, the part `part`. `path-attrs` go on its icon's path. `attrs` is a name
+   to value map of anything beyond the shared ones, an empty value meaning a bare boolean
+   attribute."
+  ([part label path-attrs] (nav-btn part label path-attrs {}))
+  ([part label path-attrs attrs]
+   (str "<x-button class='nav' variant='ghost' data-x-part='" part "'"
         (attr-markup [attr-label label])
         (apply str (map attr-markup attrs))
         ">"
-        (icon-svg path)
+        (icon-svg path-attrs)
         "</x-button>")))
 
 (defn- collapse-btn
   "The collapse button in its starting state. `data-no-drag` keeps a press on it
    from starting a panel drag."
   []
-  (let [{:keys [label path]} (collapse-affordance false)]
-    (nav-btn "collapse" label path {"data-no-drag" ""})))
+  (let [{:keys [label path]} (view/collapse-affordance false)]
+    (nav-btn "collapse" label {"d" path "data-x-part" "collapse-icon"} {"data-no-drag" ""})))
 
 (defn- markup []
   (str "<style>" styles "</style>"
-       "<x-floating-panel class='panel' open label='BareReplay'>"
+       "<x-floating-panel class='panel' data-x-part='panel' open label='BareReplay'>"
        "<div class='head' slot='header'>"
        "<span class='title'>BareReplay</span>"
        (collapse-btn)
        "</div>"
        "<div class='body'>"
-       "<div class='status'><span class='badge'></span><span class='count'></span></div>"
-       "<div class='event'></div>"
+       "<div class='status'>"
+       "<span class='badge' data-x-part='badge'></span>"
+       "<span class='count' data-x-part='count'></span>"
+       "</div>"
+       "<div class='event' data-x-part='event'></div>"
        "<div class='history'>History</div>"
        "<div class='transport'>"
-       (nav-btn "nav-start" "Jump to start" svg-start)
-       (nav-btn "nav-prev" "Step back" svg-prev)
-       "<x-slider class='slider' min='0' step='1' aria-label='History'></x-slider>"
-       (nav-btn "nav-next" "Step forward" svg-next)
-       (nav-btn "nav-end" "Jump to live" svg-end)
+       (nav-btn "start" "Jump to start" {"d" svg-start})
+       (nav-btn "prev" "Step back" {"d" svg-prev})
+       "<x-slider class='slider' data-x-part='slider' min='0' step='1' aria-label='History'>"
+       "</x-slider>"
+       (nav-btn "next" "Step forward" {"d" svg-next})
+       (nav-btn "end" "Jump to live" {"d" svg-end})
        "</div>"
-       "<x-timeline class='log' position='end'></x-timeline>"
+       "<x-timeline class='log' data-x-part='timeline' position='end'></x-timeline>"
        "<details class='data'>"
        "<summary>Data</summary>"
-       "<x-code class='data-code' language='json' show-copy wrap max-lines='12'></x-code>"
+       "<x-code class='data-code' data-x-part='data' language='json' show-copy wrap"
+       " max-lines='12'></x-code>"
        "</details>"
        "</div>"
        "</x-floating-panel>"))
 
-(defn- build-refs [^js root]
-  {:panel    (.querySelector root "x-floating-panel")
-   :badge    (.querySelector root ".badge")
-   :count    (.querySelector root ".count")
-   :event    (.querySelector root ".event")
-   :slider   (.querySelector root "x-slider")
-   :timeline (.querySelector root "x-timeline")
-   :data     (.querySelector root ".data-code")
-   :start    (.querySelector root ".nav-start")
-   :prev     (.querySelector root ".nav-prev")
-   :next     (.querySelector root ".nav-next")
-   :end      (.querySelector root ".nav-end")
-   :collapse (.querySelector root ".collapse")})
+(defn- build-refs
+  "The parts of the dock in `root`, by name."
+  [^js root]
+  (parts/read-parts (.querySelector root "x-floating-panel")))
 
 (defn- position-top-right! [^js panel]
   (js/requestAnimationFrame
@@ -402,23 +343,23 @@
 
 (defn- wire! [^js el ^js root]
   (let [refs (build-refs root)]
-    (.addEventListener (:slider refs) "x-slider-input"
+    (.addEventListener (refs "slider") "x-slider-input"
                        (fn [^js e]
                          (let [entries (store/entries)
                                total   (count entries)
                                n       (label/clamp (js/Math.round (.. e -detail -value)) 0 total)]
                            (apply-at! el refs entries n (= n total)))))
-    (.addEventListener (:timeline refs) "x-timeline-select"
+    (.addEventListener (refs "timeline") "x-timeline-select"
                        (fn [^js e]
                          (let [i (.. e -detail -index)]
                            (when (number? i)
                              (go! el refs (inc i))))))
-    (.addEventListener (:start refs) "press" (fn [_] (go! el refs 0)))
-    (.addEventListener (:prev refs) "press" (fn [_] (go! el refs (dec (current-n el)))))
-    (.addEventListener (:next refs) "press" (fn [_] (go! el refs (inc (current-n el)))))
-    (.addEventListener (:end refs) "press" (fn [_] (go! el refs (count (store/entries)))))
-    (.addEventListener (:collapse refs) "press" (fn [_] (toggle-collapsed! el refs)))
-    (position-top-right! (:panel refs))
+    (.addEventListener (refs "start") "press" (fn [_] (go! el refs 0)))
+    (.addEventListener (refs "prev") "press" (fn [_] (go! el refs (dec (current-n el)))))
+    (.addEventListener (refs "next") "press" (fn [_] (go! el refs (inc (current-n el)))))
+    (.addEventListener (refs "end") "press" (fn [_] (go! el refs (count (store/entries)))))
+    (.addEventListener (refs "collapse") "press" (fn [_] (toggle-collapsed! el refs)))
+    (position-top-right! (refs "panel"))
     (go! el refs (count (store/entries)))
     (store/subscribe! (partial follow! el refs))))
 
