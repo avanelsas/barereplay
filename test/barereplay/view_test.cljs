@@ -60,3 +60,39 @@
          ((view/writes entries {:n 1 :collapsed? false}) "data")))
   (is (= {:props {:code "No request/response at this step."}}
          ((view/writes entries {:n 2 :collapsed? false}) "data"))))
+
+(defn- meaning
+  "The meaning of an event entry, with or without an argument function."
+  [entry]
+  (if (vector? entry) (first entry) entry))
+
+(defn- argument
+  "The argument the template's event `event-type` on part `part` takes from `detail`."
+  [event-type part detail]
+  (let [[_ arg-of] (get (:events view/dock) [event-type part])]
+    (arg-of nil #js {:detail (clj->js detail)})))
+
+(deftest events-name-the-messages-of-the-dock
+  (is (= {["press" "start"]                 :start
+          ["press" "prev"]                  :prev
+          ["press" "next"]                  :next
+          ["press" "end"]                   :end
+          ["press" "collapse"]              :collapse
+          ["x-slider-input" "slider"]       :slide
+          ["x-timeline-select" "timeline"] :select}
+         (update-vals (:events view/dock) meaning))))
+
+(deftest events-take-the-position-a-gesture-asks-for
+  (is (= 50 (argument "x-slider-input" "slider" {:value 50.4})) "a slider rounds its value")
+  (is (= 9 (argument "x-timeline-select" "timeline" {:index 9})) "a select names its index")
+  (is (nil? (argument "x-timeline-select" "timeline" {:index "x"})) "a select with no index names none"))
+
+(deftest position-for-names-the-position-a-message-asks-for
+  (is (= 0 (view/position-for [:start] 5 9)))
+  (is (= 4 (view/position-for [:prev] 5 9)))
+  (is (= 6 (view/position-for [:next] 5 9)))
+  (is (= 9 (view/position-for [:end] 5 9)))
+  (is (= 3 (view/position-for [:slide 3] 5 9)))
+  (is (= 10 (view/position-for [:select 9] 5 9)) "a select moves to the entry after its index")
+  (is (nil? (view/position-for [:select] 5 9)) "a select with no index moves nowhere")
+  (is (nil? (view/position-for [:collapse] 5 9)) "a message that is no move moves nowhere"))

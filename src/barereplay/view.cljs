@@ -22,10 +22,27 @@
   "timeline")
 
 (defn- nav-button
-  "A ghost icon button, the part `part`, disabled by the hole `disabled-hole`."
-  [part label icon disabled-hole]
-  [:x-button {:class "nav" :variant "ghost" :data-x-part part :label label :disabled disabled-hole}
-   [:span {:class (str "icon " (icon-class icon))}]])
+  "A ghost icon button that shows the icon `move` and sends `move` when pressed. The hole
+   `disabled-hole` disables it."
+  [move label disabled-hole]
+  [:x-button {:class       "nav"
+              :variant     "ghost"
+              :data-x-part (name move)
+              :label       label
+              :disabled    disabled-hole
+              :on          {"press" move}}
+   [:span {:class (str "icon " (icon-class move))}]])
+
+(defn- slider-value
+  "The position a slider input asks for."
+  [_origin ^js e]
+  (js/Math.round (.. e -detail -value)))
+
+(defn- selected-index
+  "The index of the log item a select names, or nil."
+  [_origin ^js e]
+  (let [i (.. e -detail -index)]
+    (when (number? i) i)))
 
 (def dock
   (template/split
@@ -41,7 +58,8 @@
                  :variant      "ghost"
                  :data-x-part  "collapse"
                  :data-no-drag true
-                 :label        :collapse-label}
+                 :label        :collapse-label
+                 :on           {"press" :collapse}}
       [:span {:data-x-part "collapse-icon" :class :collapse-icon}]]]
     [:div {:class "body"}
      [:div {:class "status"}
@@ -50,18 +68,22 @@
      [:div {:class "event" :data-x-part "event"} :event]
      [:div {:class "history"} "History"]
      [:div {:class "transport"}
-      (nav-button "start" "Jump to start" :start :at-start?)
-      (nav-button "prev" "Step back" :prev :at-start?)
+      (nav-button :start "Jump to start" :at-start?)
+      (nav-button :prev "Step back" :at-start?)
       [:x-slider {:class       "slider"
                   :data-x-part "slider"
                   :min         "0"
                   :step        "1"
                   :aria-label  "History"
                   :max         :max
-                  :value       :value}]
-      (nav-button "next" "Step forward" :next :at-end?)
-      (nav-button "end" "Jump to live" :end :at-end?)]
-     [:x-timeline {:class "log" :data-x-part log-part :position "end"}]
+                  :value       :value
+                  :on          {"x-slider-input" [:slide slider-value]}}]
+      (nav-button :next "Step forward" :at-end?)
+      (nav-button :end "Jump to live" :at-end?)]
+     [:x-timeline {:class       "log"
+                   :data-x-part log-part
+                   :position    "end"
+                   :on          {"x-timeline-select" [:select selected-index]}}]
      [:details {:class "data"}
       [:summary "Data"]
       [:x-code {:class       "data-code"
@@ -71,6 +93,18 @@
                 :wrap        true
                 :max-lines   "12"
                 :props       {:code :code}}]]]]))
+
+(defn position-for
+  "The position `message` asks for, from position `n` of `total` entries, or nil."
+  [[meaning arg] n total]
+  (case meaning
+    :start  0
+    :prev   (dec n)
+    :next   (inc n)
+    :end    total
+    :slide  arg
+    :select (some-> arg inc)
+    nil))
 
 (defn- collapse-affordance
   "What the collapse button offers next, given the panel's current state."

@@ -3,6 +3,7 @@
    [barebuild.utils.url :as url]
    [baredom.utils.component :as comp]
    [baredom.utils.dom :as du]
+   [baremirror.alpha.events :as events]
    [baremirror.alpha.parts :as parts]
    [baremirror.alpha.places :as places]
    [baremirror.alpha.template :as template]
@@ -282,24 +283,15 @@
   (du/setv! el k-state (update (du/getv el k-state) :collapsed? not))
   (render! el refs (store/entries) (current-n el)))
 
+(defn- perform! [^js el refs [meaning :as message]]
+  (if (= meaning :collapse)
+    (toggle-collapsed! el refs)
+    (when-some [n (view/position-for message (current-n el) (count (store/entries)))]
+      (go! el refs n))))
+
 (defn- wire! [^js el ^js panel]
   (let [refs (parts/read-parts panel)]
-    (.addEventListener (refs "slider") "x-slider-input"
-                       (fn [^js e]
-                         (let [entries (store/entries)
-                               total   (count entries)
-                               n       (label/clamp (js/Math.round (.. e -detail -value)) 0 total)]
-                           (apply-at! el refs entries n (= n total)))))
-    (.addEventListener (refs "timeline") "x-timeline-select"
-                       (fn [^js e]
-                         (let [i (.. e -detail -index)]
-                           (when (number? i)
-                             (go! el refs (inc i))))))
-    (.addEventListener (refs "start") "press" (fn [_] (go! el refs 0)))
-    (.addEventListener (refs "prev") "press" (fn [_] (go! el refs (dec (current-n el)))))
-    (.addEventListener (refs "next") "press" (fn [_] (go! el refs (inc (current-n el)))))
-    (.addEventListener (refs "end") "press" (fn [_] (go! el refs (count (store/entries)))))
-    (.addEventListener (refs "collapse") "press" (fn [_] (toggle-collapsed! el refs)))
+    (events/listen! panel {:dispatch! (partial perform! el refs) :events (:events view/dock)})
     (position-top-right! panel)
     (go! el refs (count (store/entries)))
     (store/subscribe! (partial follow! el refs))))
