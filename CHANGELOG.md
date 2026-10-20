@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.0
+
+Depends on BareBuild 0.9.0 and BareDOM 4.11.0, rather than 0.8.0 and 4.5.0. An app that takes
+BareDOM through BareReplay moves to 4.11 with it.
+
+The dock is made with BareMirror, the alpha that ships in BareDOM. It is one template with its
+events as messages, and a pure view says what it shows at each position. A step writes only the
+history items that change, where it wrote every item before. The icons are CSS masks.
+
+Fixes a crash when the log is cleared while the dock is replaying. The dock now moves to the end
+of the cleared log.
+
 ## 0.5.0
 
 Depends on BareBuild 0.8.0 and BareDOM 4.5.0, rather than 0.7.0 and 3.7.0. The dock is built from
