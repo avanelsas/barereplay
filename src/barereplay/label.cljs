@@ -39,3 +39,29 @@
   (cond (= idx n) "active"
         (< idx n) "complete"
         :else     "pending"))
+
+(defn log-key
+  "The key of the log item at index `i`."
+  [i]
+  (str i))
+
+(defn log-item
+  "The title and status of the log item at index `i`, at position `n`."
+  [entries n i]
+  {:title  (event->label (:event (nth entries i)))
+   :status (item-status (inc i) n)})
+
+(defn- moved-indices
+  "The indices of the log items whose status a move from position `a` to `b` changes."
+  [a b]
+  (if (= a b)
+    []
+    (range (max 0 (dec (min a b))) (max a b))))
+
+(defn changed-log-indices
+  "The indices of the log items that differ between the view `prev` and position `n` of
+   `total` entries, in order. With no `prev`, or fewer entries than `prev`, every index."
+  [{prev-n :n prev-total :total} total n]
+  (if (or (nil? prev-total) (< total prev-total))
+    (range total)
+    (into (sorted-set) (concat (moved-indices prev-n n) (range prev-total total)))))

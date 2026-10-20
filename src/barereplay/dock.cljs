@@ -3,6 +3,9 @@
    [barebuild.utils.url :as url]
    [baredom.utils.component :as comp]
    [baredom.utils.dom :as du]
+   [baremirror.alpha.parts :as parts]
+   [baremirror.alpha.places :as places]
+   [baremirror.alpha.template :as template]
    [barereplay.label :as label]
    [barereplay.reconstruct :as reconstruct]
    [barereplay.store :as store]))
@@ -142,19 +145,20 @@
     {:label "Expand panel"   :path svg-expand}
     {:label "Collapse panel" :path svg-collapse}))
 
-(defn- make-item! [entries i]
-  (let [^js item (.createElement js/document "x-timeline-item")]
-    (du/set-attr! item "title" (label/event->label (:event (nth entries i))))
-    item))
+(def ^:private timeline-item
+  (template/split :log-item [:x-timeline-item {:title :title :status :status}]))
 
-(defn- grow-log! [^js timeline entries from to]
-  (doseq [i (range from to)]
-    (.appendChild timeline (make-item! entries i))))
+(def ^:private make-timeline-item! (parts/node-maker (:fixed timeline-item)))
 
-(defn- paint-statuses! [^js timeline n]
-  (let [items (.-children timeline)]
-    (dotimes [i (.-length items)]
-      (du/set-attr! (.item items i) "status" (label/item-status (inc i) n)))))
+(defn- place-log-items!
+  "Brings the items of `timeline` to one for each of `total` entries."
+  [^js timeline total]
+  (places/sync! {:log {:parent timeline}} {:log (mapv label/log-key (range total))}
+                make-timeline-item!))
+
+;; The items are keyed by their index, so the child at index `i` is the item of entry `i`.
+(defn- write-log-item! [^js timeline entries n i]
+  (parts/write-item! (.item (.-children timeline) i) timeline-item (label/log-item entries n i)))
 
 (defn- scroll-active! [^js timeline n]
   (when (pos? n)
@@ -183,15 +187,15 @@
     (du/set-attr! btn attr-label label)
     (set! (.-innerHTML btn) (icon-svg path))))
 
-(defn- render-log! [refs entries n]
+(defn- render-log!
+  "Brings the log from the view `prev` to position `n`, writing only the items that change."
+  [refs entries prev n]
   (let [^js timeline (:timeline refs)
-        total        (count entries)
-        have         (.-length (.-children timeline))]
-    (cond
-      (> have total) (do (set! (.-innerHTML timeline) "")
-                         (grow-log! timeline entries 0 total))
-      (< have total) (grow-log! timeline entries have total))
-    (paint-statuses! timeline n)
+        total        (count entries)]
+    (when-not (= total (:total prev))
+      (place-log-items! timeline total))
+    (run! (partial write-log-item! timeline entries n)
+          (label/changed-log-indices prev total n))
     (scroll-active! timeline n)))
 
 (defn- render-data! [refs entries n]
@@ -269,7 +273,7 @@
       (du/setv! el k-view view)
       (render-status! refs entries n)
       (render-collapse! refs collapsed?)
-      (render-log! refs entries n)
+      (render-log! refs entries prev n)
       (render-data! refs entries n)
       (render-nav! refs n total)
       (render-slider! refs n total))))
